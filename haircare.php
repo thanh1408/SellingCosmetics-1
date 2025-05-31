@@ -66,6 +66,38 @@ $productVariants = [
         ['name' => 'Lẻ 1 chai', 'img' => 'assets/images/p322.jpg', 'price' => 314000],
         ['name' => 'Combo 2 chai', 'img' => 'assets/images/p323.jpg', 'price' => 589000]
     ],
+    33 => [
+        ['name' => 'Tóc thường', 'img' => 'assets/images/p334.jpg', 'price' => 217000],
+        ['name' => 'Phục hồi tóc', 'img' => 'assets/images/p335.jpg', 'price' => 316000]
+    ],
+    34 => [
+        ['name' => '300gr', 'img' => 'assets/images/p344.jpg', 'price' => 46000],
+        ['name' => '500gr', 'img' => 'assets/images/p344.jpg', 'price' => 54000]
+    ],
+    35 => [
+        ['name' => 'Olaplex  No0 155ml', 'img' => 'assets/images/p334.jpg', 'price' => 599000],
+        ['name' => 'Olaplex  No4 155ml', 'img' => 'assets/images/p335.jpg', 'price' => 599000]
+    ],
+    36 => [
+        ['name' => 'Serum bóng tóc 50ml', 'img' => 'assets/images/p364.jpg', 'price' => 250000],
+        ['name' => 'tinh chất essence', 'img' => 'assets/images/p365.jpg', 'price' => 250000]
+    ],
+    37=> [
+        ['name' => '120ml', 'img' => 'assets/images/p374.jpg', 'price' => 69000],
+        ['name' => '250ml', 'img' => 'assets/images/p375.jpg', 'price' => 69000]
+    ],
+    38 => [
+        ['name' => 'DG Oil + ST Pore 400ml', 'img' => 'assets/images/p384.jpg', 'price' => 242000],
+        ['name' => 'DG Oil Control 400ml', 'img' => 'assets/images/p385.jpg', 'price' => 159000]
+    ],
+    39 => [
+        ['name' => '140ml', 'img' => 'assets/images/p394.jpg', 'price' => 260000],
+        ['name' => '250ml', 'img' => 'assets/images/p395.jpg', 'price' => 300000]
+    ],
+    40 => [
+        ['name' => '500gr', 'img' => 'assets/images/p404.jpg', 'price' => 383000],
+        ['name' => '700gr', 'img' => 'assets/images/p405.jpg', 'price' => 430000]
+    ],
 
     // perfume
     41 => [
