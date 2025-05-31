@@ -27,17 +27,9 @@ if (isset($_SESSION['user_id'])) {
 // Nếu không phải admin, hiển thị thông báo lỗi
 if (!$isAdmin) {
 ?>
-
-
-
-
     Không có quyền truy cập
-
     Bạn cần tài khoản admin để truy cập trang này.
-
     Quay lại trang chủ
-
-
 <?php
     $conn->close();
     exit();
@@ -48,7 +40,7 @@ $page = isset($_GET['page']) ? $_GET['page'] : 'home';
 
 // Lấy từ khóa tìm kiếm nếu có và chuẩn hóa
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
-$search = strtolower($search); // Chuyển về chữ thường để tìm kiếm không phân biệt hoa/thường
+$search = strtolower($search);
 
 // Lấy dữ liệu thống kê
 $totalOrders = 0;
@@ -68,10 +60,30 @@ if ($resultDelivering) $itemsDelivering = $resultDelivering->fetch_assoc()['deli
 $resultReviews = $conn->query("SELECT COUNT(*) as reviewed FROM product_reviews");
 if ($resultReviews) $itemsCommented = $resultReviews->fetch_assoc()['reviewed'];
 
+// Lấy dữ liệu doanh thu theo tháng
+$monthlyRevenue = [];
+$resultRevenue = $conn->query("
+    SELECT 
+        DATE_FORMAT(created_at, '%Y-%m') AS month,
+        SUM(final_total) AS revenue
+    FROM orders
+    WHERE YEAR(created_at) = YEAR(CURDATE())
+    GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+    ORDER BY month ASC
+");
+if ($resultRevenue) {
+    while ($row = $resultRevenue->fetch_assoc()) {
+        $monthlyRevenue[] = [
+            'month' => $row['month'],
+            'revenue' => (float)$row['revenue']
+        ];
+    }
+}
+
 // Lấy dữ liệu sản phẩm
 $products = [];
 if ($page == 'product' && $search) {
-    $stmt = $conn->prepare("SELECT id, name, category, price, product_image FROM product WHERE LOWER(name) LIKE ? OR LOWER(category) LIKE ?");
+    $stmt = $conn->prepare("SELECT id, name, category, price, stock, product_image FROM product WHERE LOWER(name) LIKE ? OR LOWER(category) LIKE ?");
     $searchParam = "%$search%";
     $stmt->bind_param("ss", $searchParam, $searchParam);
     $stmt->execute();
@@ -81,7 +93,7 @@ if ($page == 'product' && $search) {
     }
     $stmt->close();
 } else {
-    $resultProducts = $conn->query("SELECT id, name, category, price, product_image FROM product");
+    $resultProducts = $conn->query("SELECT id, name, category, price, stock, product_image FROM product");
     if ($resultProducts) {
         while ($row = $resultProducts->fetch_assoc()) {
             $products[] = $row;
@@ -271,17 +283,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $category = $_POST['category'];
         $price = $_POST['price'];
         $stock = $_POST['stock'];
-
-        // Xử lý upload ảnh
         $product_image = '';
-        if (isset($_FILES['product_image']) && $_FILES['product_image']['error'] == 0) {
-            $target_dir = "images/"; // Thư mục lưu ảnh
-            $target_file = $target_dir . basename($_FILES["product_image"]["name"]);
-            if (move_uploaded_file($_FILES["product_image"]["tmp_name"], $target_file)) {
-                $product_image = $target_file;
-            }
+        if (isset($_POST['product_image']) && !empty($_POST['product_image'])) {
+            $product_image = $_POST['product_image'];
         }
-
         $stmt = $conn->prepare("INSERT INTO product (name, category, price, stock, product_image) VALUES (?, ?, ?, ?, ?)");
         $stmt->bind_param("ssdss", $name, $category, $price, $stock, $product_image);
         $stmt->execute();
@@ -294,8 +299,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $name = $_POST['name'];
         $category = $_POST['category'];
         $price = $_POST['price'];
-        $stmt = $conn->prepare("UPDATE product SET name = ?, category = ?, price = ? WHERE id = ?");
-        $stmt->bind_param("ssdi", $name, $category, $price, $id);
+        $stock = $_POST['stock'];
+        $stmt = $conn->prepare("UPDATE product SET name = ?, category = ?, price = ?, stock = ? WHERE id = ?");
+        $stmt->bind_param("ssdii", $name, $category, $price, $stock, $id);
         $stmt->execute();
         $stmt->close();
         header("Location: ?page=product");
@@ -864,9 +870,15 @@ if (isset($_GET['logout'])) {
                 </div>
             </div>
             <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <?php if (empty($monthlyRevenue)): ?>
+                <div style="width: 100%; max-width: 600px; margin: 100px auto; text-align: center; color: #6B7280;">
+                    Chưa có dữ liệu doanh thu để hiển thị.
+                </div>
+            <?php else: ?>
                 <div style="width: 100%; max-width: 600px; margin: 100px auto;">
                     <canvas id="statsChart"></canvas>
                 </div>
+            <?php endif; ?>
         <?php elseif ($page == 'category'): ?>
             <div class="search-container">
                 <button class="add-btn" onclick="document.getElementById('add-category-form').classList.add('active')"><i class="fas fa-plus"></i> Thêm danh mục</button>
@@ -891,17 +903,16 @@ if (isset($_GET['logout'])) {
                     </thead>
                     <tbody>
                         <?php if (empty($categories)): ?>
-                            <tr>
-                                <td colspan="4" style="text-align: center;">Không tìm thấy danh mục nào.</td>
+                            <tr ON (td) colspan="4" style="text-align: center;">Không tìm thấy danh mục nào.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($categories as $category): ?>
                                 <tr>
-                                    <td><?php echo $category['id']; ?></td>
+                                    <td><?php echo htmlspecialchars($category['id']); ?></td>
                                     <td><?php echo htmlspecialchars($category['name']); ?></td>
                                     <td><?php echo htmlspecialchars($category['description']); ?></td>
                                     <td class="actions">
-                                        <button class="edit-btn" onclick="editCategory(<?php echo $category['id']; ?>, '<?php echo addslashes($category['name']); ?>', '<?php echo addslashes($category['description']); ?>')"><i class="fas fa-edit"></i> Sửa</button>
+                                        <button class="edit-btn" onclick="editCategory(<?php echo $category['id']; ?>, '<?php echo addslashes($category['name']); ?>', '<?php echo htmlspecialchars($category['description']); ?>')"><i class="fas fa-edit"></i> Sửa</button>
                                         <form method="POST" onsubmit="return confirm('Bạn có chắc muốn xóa?');">
                                             <input type="hidden" name="id" value="<?php echo $category['id']; ?>">
                                             <button type="submit" name="delete_category" class="delete-btn"><i class="fas fa-trash"></i> Xóa</button>
@@ -925,7 +936,7 @@ if (isset($_GET['logout'])) {
                         <textarea id="description" name="description" required></textarea>
                     </div>
                     <button type="submit" name="add_category" class="submit-btn"><i class="fas fa-save"></i> Thêm</button>
-                    <button onclick="document.getElementById('add-category-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="document.getElementById('add-category-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
             <div id="edit-category-form" class="form-container">
@@ -941,7 +952,7 @@ if (isset($_GET['logout'])) {
                         <textarea id="edit-description" name="description" required></textarea>
                     </div>
                     <button type="submit" name="edit_category" class="submit-btn"><i class="fas fa-save"></i> Lưu</button>
-                    <button onclick="document.getElementById('edit-category-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="button" onclick="document.getElementById('edit-category-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
         <?php elseif ($page == 'product'): ?>
@@ -953,7 +964,7 @@ if (isset($_GET['logout'])) {
                         <input type="text" name="search" placeholder="Tìm kiếm sản phẩm hoặc danh mục..." value="<?php echo htmlspecialchars($search); ?>">
                         <i class="fas fa-magnifying-glass"></i>
                     </form>
-                    <button type="submit" form="product-search-form" class="search-btn"><i class="fas fa-search"></i> Tìm kiếm</button>
+                    <button type="submit" form="product-search-form" class="search-btn"><i class="fas fa-search"></i> Tìm</button>
                 </div>
             </div>
             <div class="table-container">
@@ -961,9 +972,10 @@ if (isset($_GET['logout'])) {
                     <thead>
                         <tr>
                             <th>ID</th>
-                            <th>Ảnh</th> <!-- Thêm cột Ảnh -->
+                            <th>Ảnh</th>
                             <th>Tên sản phẩm</th>
                             <th>Danh mục</th>
+                            <th>Tồn kho</th>
                             <th>Giá</th>
                             <th>Hành động</th>
                         </tr>
@@ -971,7 +983,7 @@ if (isset($_GET['logout'])) {
                     <tbody>
                         <?php if (empty($products)): ?>
                             <tr>
-                                <td colspan="6" style="text-align: center;">Không tìm thấy sản phẩm nào.</td> <!-- Cập nhật colspan thành 6 -->
+                                <td colspan="7" style="text-align: center;">Không tìm thấy sản phẩm nào.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($products as $product): ?>
@@ -986,9 +998,10 @@ if (isset($_GET['logout'])) {
                                     </td>
                                     <td><?php echo htmlspecialchars($product['name']); ?></td>
                                     <td><?php echo htmlspecialchars($product['category']); ?></td>
+                                    <td><?php echo htmlspecialchars($product['stock']); ?></td>
                                     <td><?php echo number_format($product['price'], 0, ',', '.') . ' VNĐ'; ?></td>
                                     <td class="actions">
-                                        <button class="edit-btn" onclick="editProduct(<?php echo $product['id']; ?>, '<?php echo addslashes($product['name']); ?>', '<?php echo addslashes($product['category']); ?>', <?php echo $product['price']; ?>)"><i class="fas fa-edit"></i> Sửa</button>
+                                        <button class="edit-btn" onclick="editProduct(<?php echo $product['id']; ?>, '<?php echo addslashes($product['name']); ?>', '<?php echo addslashes($product['category']); ?>', <?php echo $product['price']; ?>, <?php echo $product['stock']; ?>)"><i class="fas fa-edit"></i> Sửa</button>
                                         <form method="POST" onsubmit="return confirm('Bạn có chắc muốn xóa?');">
                                             <input type="hidden" name="id" value="<?php echo $product['id']; ?>">
                                             <button type="submit" name="delete_product" class="delete-btn"><i class="fas fa-trash"></i> Xóa</button>
@@ -1013,18 +1026,18 @@ if (isset($_GET['logout'])) {
                     </div>
                     <div class="form-group">
                         <label for="price">Giá</label>
-                        <input type="number" id="price" name="price" step="0.01" required>
+                        <input type="number" id="price" name="price" step="0.01" min="0" required>
                     </div>
                     <div class="form-group">
-                        <label for="stock">Số lượng</label>
-                        <input type="number" id="stock" name="stock" required>
+                        <label for="stock">Tồn kho</label>
+                        <input type="number" id="stock" name="stock" min="0" required>
                     </div>
                     <div class="form-group">
                         <label for="product_image">Ảnh</label>
-                        <input type="text" id="product_image" name="product_image" required>
+                        <input type="text" id="product_image" name="product_image">
                     </div>
                     <button type="submit" name="add_product" class="submit-btn"><i class="fas fa-save"></i> Thêm</button>
-                    <button onclick="document.getElementById('add-product-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="button" onclick="document.getElementById('add-product-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
             <div id="edit-product-form" class="form-container">
@@ -1041,10 +1054,14 @@ if (isset($_GET['logout'])) {
                     </div>
                     <div class="form-group">
                         <label for="edit-price">Giá</label>
-                        <input type="number" id="edit-price" name="price" step="0.01" required>
+                        <input type="number" id="edit-price" name="price" step="0.01" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-stock">Tồn kho</label>
+                        <input type="number" id="edit-stock" name="stock" min="0" required>
                     </div>
                     <button type="submit" name="edit_product" class="submit-btn"><i class="fas fa-save"></i> Lưu</button>
-                    <button onclick="document.getElementById('edit-product-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="button" onclick="document.getElementById('edit-product-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
         <?php elseif ($page == 'order'): ?>
@@ -1080,7 +1097,6 @@ if (isset($_GET['logout'])) {
                                 $users[$row['id']] = $row;
                             }
                         }
-                        // Nhóm đơn hàng theo order_id để hiển thị tổng hợp
                         $groupedOrders = [];
                         foreach ($orders as $order) {
                             $orderId = $order['stt'];
@@ -1105,7 +1121,6 @@ if (isset($_GET['logout'])) {
                                 ];
                             }
                         }
-
                         if (empty($groupedOrders)): ?>
                             <tr>
                                 <td colspan="7" style="text-align: center;">Không tìm thấy đơn hàng nào.</td>
@@ -1150,7 +1165,7 @@ if (isset($_GET['logout'])) {
                         </select>
                     </div>
                     <button type="submit" name="edit_order" class="submit-btn"><i class="fas fa-save"></i> Lưu</button>
-                    <button onclick="document.getElementById('edit-order-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="button" onclick="document.getElementById('edit-order-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
         <?php elseif ($page == 'slider'): ?>
@@ -1191,7 +1206,7 @@ if (isset($_GET['logout'])) {
                                     <td><?php echo htmlspecialchars($slider['link']); ?></td>
                                     <td><?php echo $slider['order']; ?></td>
                                     <td class="actions">
-                                        <button class="edit-btn" onclick="editSlider(<?php echo $slider['id']; ?>, '<?php echo addslashes($slider['name']); ?>', '<?php echo addslashes($slider['image']); ?>', '<?php echo addslashes($slider['link']); ?>', <?php echo $slider['order']; ?>)"><i class="fas fa-edit"></i> Sửa</button>
+                                        <button class="edit-btn" onclick="editSlider(<?php echo $slider['id']; ?>, '<?php echo htmlspecialchars($slider['name']); ?>', '<?php echo htmlspecialchars($slider['image']); ?>', '<?php echo htmlspecialchars($slider['link']); ?>', <?php echo $slider['order']; ?>)"><i class="fas fa-edit"></i> Sửa</button>
                                         <form method="POST" onsubmit="return confirm('Bạn có chắc muốn xóa?');">
                                             <input type="hidden" name="id" value="<?php echo $slider['id']; ?>">
                                             <button type="submit" name="delete_slider" class="delete-btn"><i class="fas fa-trash"></i> Xóa</button>
@@ -1223,7 +1238,7 @@ if (isset($_GET['logout'])) {
                         <input type="number" id="order" name="order" required>
                     </div>
                     <button type="submit" name="add_slider" class="submit-btn"><i class="fas fa-save"></i> Thêm</button>
-                    <button onclick="document.getElementById('add-slider-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="button" onclick="document.getElementById('add-slider-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
             <div id="edit-slider-form" class="form-container">
@@ -1247,7 +1262,7 @@ if (isset($_GET['logout'])) {
                         <input type="number" id="edit-order" name="order" required>
                     </div>
                     <button type="submit" name="edit_slider" class="submit-btn"><i class="fas fa-save"></i> Lưu</button>
-                    <button onclick="document.getElementById('edit-slider-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="button" onclick="document.getElementById('edit-slider-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
         <?php elseif ($page == 'customer'): ?>
@@ -1318,7 +1333,7 @@ if (isset($_GET['logout'])) {
                         <input type="password" id="password" name="password" required>
                     </div>
                     <button type="submit" name="add_customer" class="submit-btn"><i class="fas fa-save"></i> Thêm</button>
-                    <button onclick="document.getElementById('add-customer-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="button" onclick="document.getElementById('add-customer-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
             <div id="edit-customer-form" class="form-container">
@@ -1338,7 +1353,7 @@ if (isset($_GET['logout'])) {
                         <input type="text" id="edit-phone" name="phone" required>
                     </div>
                     <button type="submit" name="edit_customer" class="submit-btn"><i class="fas fa-save"></i> Lưu</button>
-                    <button onclick="document.getElementById('edit-customer-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="button" onclick="document.getElementById('edit-customer-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
         <?php elseif ($page == 'voucher'): ?>
@@ -1383,7 +1398,7 @@ if (isset($_GET['logout'])) {
                                     <td><?php echo htmlspecialchars(date('d/m/Y H:i', strtotime($voucher['expires_at']))); ?></td>
                                     <td><?php echo $voucher['is_active'] ? 'Hoạt động' : 'Không hoạt động'; ?></td>
                                     <td class="actions">
-                                        <button class="edit-btn" onclick="editVoucher(<?php echo $voucher['id']; ?>, '<?php echo addslashes($voucher['code']); ?>', <?php echo $voucher['discount']; ?>, '<?php echo $voucher['discount_type']; ?>', <?php echo $voucher['min_order_value']; ?>, '<?php echo $voucher['expires_at']; ?>', <?php echo $voucher['is_active']; ?>)"><i class="fas fa-edit"></i> Sửa</button>
+                                        <button class="edit-btn" onclick="editVoucher(<?php echo $voucher['id']; ?>, '<?php echo htmlspecialchars($voucher['code']); ?>', <?php echo $voucher['discount']; ?>, '<?php echo $voucher['discount_type']; ?>', <?php echo $voucher['min_order_value']; ?>, '<?php echo $voucher['expires_at']; ?>', <?php echo $voucher['is_active']; ?>)"><i class="fas fa-edit"></i> Sửa</button>
                                         <form method="POST" onsubmit="return confirm('Bạn có chắc muốn xóa?');">
                                             <input type="hidden" name="id" value="<?php echo $voucher['id']; ?>">
                                             <button type="submit" name="delete_voucher" class="delete-btn"><i class="fas fa-trash"></i> Xóa</button>
@@ -1395,7 +1410,7 @@ if (isset($_GET['logout'])) {
                     </tbody>
                 </table>
             </div>
-            <div id="add-voucher-form" class="form-container">
+            <div id="add-voucher" class="form-container">
                 <h3>Thêm voucher</h3>
                 <form method="POST" action="">
                     <div class="form-group">
@@ -1403,7 +1418,7 @@ if (isset($_GET['logout'])) {
                         <input type="text" id="code" name="code" required>
                     </div>
                     <div class="form-group">
-                        <label for="discount">Giảm giá</label>
+                        <label for="discount">Giá trị</label>
                         <input type="number" id="discount" name="discount" step="0.01" required>
                     </div>
                     <div class="form-group">
@@ -1422,12 +1437,11 @@ if (isset($_GET['logout'])) {
                         <input type="datetime-local" id="expires_at" name="expires_at" required>
                     </div>
                     <div class="form-group">
-                        <label for="is_active">Trạng thái</label>
-                        <input type="checkbox" id="is_active" name="is_active" value="1" checked>
                         <label for="is_active">Hoạt động</label>
+                        <input type="checkbox" id="is_active" name="is_active" value="1" checked>
                     </div>
                     <button type="submit" name="add_voucher" class="submit-btn"><i class="fas fa-save"></i> Thêm</button>
-                    <button onclick="document.getElementById('add-voucher-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="button" onclick="document.getElementById('add-voucher-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
             <div id="edit-voucher-form" class="form-container">
@@ -1439,7 +1453,7 @@ if (isset($_GET['logout'])) {
                         <input type="text" id="edit-code" name="code" required>
                     </div>
                     <div class="form-group">
-                        <label for="edit-discount">Giảm giá</label>
+                        <label for="edit-discount">Giá trị</label>
                         <input type="number" id="edit-discount" name="discount" step="0.01" required>
                     </div>
                     <div class="form-group">
@@ -1458,17 +1472,14 @@ if (isset($_GET['logout'])) {
                         <input type="datetime-local" id="edit-expires_at" name="expires_at" required>
                     </div>
                     <div class="form-group">
-                        <label for="edit-is_active">Trạng thái</label>
-                        <input type="checkbox" id="edit-is_active" name="is_active" value="1">
                         <label for="edit-is_active">Hoạt động</label>
+                        <input type="checkbox" id="edit-is_active" name="is_active" value="1">
                     </div>
                     <button type="submit" name="edit_voucher" class="submit-btn"><i class="fas fa-save"></i> Lưu</button>
-                    <button onclick="document.getElementById('edit-voucher-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
+                    <button type="button" onclick="document.getElementById('edit-voucher-form').classList.remove('active')" class="add-btn"><i class="fas fa-times"></i> Đóng</button>
                 </form>
             </div>
         <?php endif; ?>
-
-
     </div>
     <script>
         function editCategory(id, name, description) {
@@ -1492,6 +1503,23 @@ if (isset($_GET['logout'])) {
             document.getElementById('edit-order-form').classList.add('active');
         }
 
+        function editSlider(id, name, image, link, order) {
+            document.getElementById('edit-id').value = id;
+            document.getElementById('edit-name').value = name;
+            document.getElementById('edit-image').value = image;
+            document.getElementById('edit-link').value = link;
+            document.getElementById('edit-order').value = order;
+            document.getElementById('edit-slider-form').classList.add('active');
+        }
+
+        function editCustomer(id, name, email, phone) {
+            document.getElementById('edit-id').value = id;
+            document.getElementById('edit-name').value = name;
+            document.getElementById('edit-email').value = email;
+            document.getElementById('edit-phone').value = phone;
+            document.getElementById('edit-customer-form').classList.add('active');
+        }
+
         function editVoucher(id, code, discount, discount_type, min_order_value, expires_at, is_active) {
             document.getElementById('edit-id').value = id;
             document.getElementById('edit-code').value = code;
@@ -1505,70 +1533,104 @@ if (isset($_GET['logout'])) {
         document.getElementById('toggle-sidebar').addEventListener('click', function() {
             document.getElementById('sidebar').classList.toggle('hidden');
         });
-
-
-        document.addEventListener('DOMContentLoaded', function() {
-            const ctx = document.getElementById('statsChart').getContext('2d');
-            const chart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: ['Tổng đơn hàng', 'Sản phẩm đã bán', 'Sản phẩm được bình luận'],
-                    datasets: [{
-                        label: 'Thống kê',
-                        data: [<?php echo $totalOrders; ?>, <?php echo $itemsSold; ?>, <?php echo $itemsCommented; ?>],
-                        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'],
-                        borderColor: ['#FF6384', '#36A2EB', '#FFCE56'],
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                stepSize: 1
+        <?php if (!empty($monthlyRevenue)): ?>
+            document.addEventListener('DOMContentLoaded', function() {
+                const ctx = document.getElementById('statsChart').getContext('2d');
+                const initialData = <?php
+                                    $months = array_map(function ($item) {
+                                        $date = DateTime::createFromFormat('Y-m', $item['month']);
+                                        return $date->format('m/Y');
+                                    }, $monthlyRevenue);
+                                    $revenues = array_map(function ($item) {
+                                        return $item['revenue'];
+                                    }, $monthlyRevenue);
+                                    echo json_encode([
+                                        'labels' => $months,
+                                        'data' => $revenues
+                                    ]);
+                                    ?>;
+                const chart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: initialData.labels,
+                        datasets: [{
+                            label: 'Doanh thu',
+                            data: initialData.data,
+                            backgroundColor: '#EC4899',
+                            borderColor: '#DB2777',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value.toLocaleString('vi-VN', {
+                                            style: 'currency',
+                                            currency: 'VND'
+                                        });
+                                    }
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Doanh thu (VNĐ)'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Tháng'
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
                             },
                             title: {
                                 display: true,
-                                text: 'Số lượng'
+                                text: 'Thống kê Doanh thu Theo Tháng'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.dataset.label + ': ' + context.parsed.y.toLocaleString('vi-VN', {
+                                            style: 'currency',
+                                            currency: 'VND'
+                                        });
+                                    }
+                                }
                             }
-                        },
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Hạng mục'
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: false
-                        },
-                        title: {
-                            display: true,
-                            text: 'Thống kê trên Trang chủ'
                         }
                     }
+                });
+
+                function updateChart() {
+                    fetch('get_stats.php')
+                        .then(response => response.json())
+                        .then(data => {
+                            chart.data.labels = data.monthlyRevenue.map(item => {
+                                const date = new Date(item.month + '-01');
+                                return date.toLocaleString('vi-VN', {
+                                    month: 'numeric',
+                                    year: 'numeric'
+                                });
+                            });
+                            chart.data.datasets[0].data = data.monthlyRevenue.map(item => item.revenue);
+                            chart.update();
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            alert('Không thể cập nhật biểu đồ. Vui lòng thử lại.');
+                        });
                 }
+                setInterval(updateChart, 10000);
+                updateChart();
             });
-
-            // Cập nhật dữ liệu định kỳ
-            function updateChart() {
-                fetch('get_stats.php')
-                    .then(response => response.json())
-                    .then(data => {
-                        chart.data.datasets[0].data = [data.totalOrders, data.itemsSold, data.itemsCommented];
-                        chart.update();
-                    })
-                    .catch(error => console.error('Error:', error));
-            }
-
-            setInterval(updateChart, 10000); // Cập nhật mỗi 10 giây
-            updateChart(); // Cập nhật ngay khi tải trang
-        });
+        <?php endif; ?>
     </script>
-
-
 </body>
 
 </html>
